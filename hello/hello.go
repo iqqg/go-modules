@@ -1,9 +1,7 @@
 package hello
 
-import (
-	"github.com/iqqg/learn_golang/example/cgo"
-)
+import "fmt"
 
 func hello() {
-	cgo.Example()
+	fmt.Println("hello")
 }
