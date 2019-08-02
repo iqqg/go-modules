@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/go-redis/redis"
 )
@@ -14,25 +15,81 @@ type DbPerson struct {
 	Age  int
 	Sex  int
 	Desc string
+	name string
 }
 
 func init() {
-	opt, err := redis.ParseURL("redis://:shine@192.168.1.4:6379/0")
+	opt, err := redis.ParseURL("redis://:8o9f3wy8h3@58.247.211.210:6379/0")
 	if err != nil {
 		panic(err)
 	}
 
 	if client == nil {
+		// opt.ReadTimeout = time.Second * 10
 		client = redis.NewClient(opt)
 	}
+	ping()
 }
 
-func redisExample() {
-	p := DbPerson{30, 1, "一个普通人"}
-	for i := 0; i < 100000; i++ {
-		p.Age = i
-		setPerson(fmt.Sprintf("gaoyang_%d", i), &p)
+// RedisExample example
+func RedisExample() {
+	p := DbPerson{30, 1, "一个普通人", ""}
+
+	// withPipelining(func(db redis.Cmdable) {
+	// 	for i := 0; i < 100; i++ {
+	// 		p.Age = i
+	// 		p.name = fmt.Sprintf("gaoyang_%d", i)
+	// 		p.writeTo(db)
+	// 	}
+	// })
+
+	// withoutPipelining(func(db redis.Cmdable) {
+	// 	for i := 0; i < 100; i++ {
+	// 		p.Age = i
+	// 		p.name = fmt.Sprintf("gaoyang_%d", i)
+	// 		p.writeTo(db)
+	// 	}
+	// })
+
+	results := []*redis.StringCmd{}
+	withPipelining(func(db redis.Cmdable) {
+		for i := 0; i < 100; i++ {
+			p.Age = i
+			p.name = fmt.Sprintf("gaoyang_%d", i)
+			results = append(results, client.HGet("person", p.name))
+		}
+	}, func(cmds []redis.Cmder, err error) {
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		p := DbPerson{}
+		for i := range results {
+			args := results[i].Args()
+			p.name = args[len(args)-1].(string)
+			p.decodeFromStrCmd(results[i])
+			fmt.Println(p)
+		}
+	})
+}
+
+func withoutPipelining(content func(client redis.Cmdable)) {
+	now := time.Now()
+	content(client)
+	fmt.Println("all done. ", time.Now().Sub(now).Seconds(), "sec")
+}
+
+func withPipelining(content func(client redis.Cmdable), result func([]redis.Cmder, error)) {
+	pip := client.Pipeline()
+	now := time.Now()
+
+	content(pip)
+	if result != nil {
+		result(pip.Exec())
 	}
+
+	fmt.Println("pipe done. ", time.Now().Sub(now).Seconds(), "sec")
 }
 
 func ping() {
@@ -45,31 +102,35 @@ func ping() {
 	}
 }
 
-func setPerson(name string, p *DbPerson) {
+func (p *DbPerson) writeTo(client redis.Cmdable) {
 	// hash set
 	j, err := json.Marshal(p)
 	if err != nil {
 		fmt.Println("fail:", err)
 	}
 
-	err = client.HSet("person", name, string(j)).Err()
+	err = client.HSet("person", p.name, string(j)).Err()
 	if err != nil {
 		fmt.Println("fail:", err)
 	}
 }
 
-func getPerson(name string) *DbPerson {
-	r := client.HGet("person", name)
+func (p *DbPerson) decodeFromStrCmd(r *redis.StringCmd) {
 	if err := r.Err(); err != nil {
 		fmt.Println("fail:", err)
 	} else {
 		if b, err := r.Bytes(); err != nil {
 			fmt.Println("fail:", err)
 		} else {
-			p := DbPerson{}
-			json.Unmarshal(b, &p)
-			return &p
+			json.Unmarshal(b, p)
 		}
 	}
-	return nil
+}
+
+func (p *DbPerson) readFrom(client redis.Cmdable) {
+	p.decodeFromStrCmd(client.HGet("person", p.name))
+}
+
+func (p DbPerson) String() string {
+	return fmt.Sprintf("name: %s, age: %d, sex: %d, desc: %s", p.name, p.Age, p.Sex, p.Desc)
 }
