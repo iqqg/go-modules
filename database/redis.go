@@ -10,6 +10,18 @@ import (
 
 var client *redis.Client
 
+func init() {
+	opt, err := redis.ParseURL("redis://:@127.0.0.1:7000/0")
+	if err != nil {
+		panic(err)
+	}
+	
+	if client == nil {
+		client = redis.NewClient(opt)
+	}
+	ping()
+}
+
 // DbPerson person
 type DbPerson struct {
 	Age  int
@@ -18,17 +30,37 @@ type DbPerson struct {
 	name string
 }
 
-func init() {
-	opt, err := redis.ParseURL("redis://:8o9f3wy8h3@58.247.211.210:6379/0")
+func (p *DbPerson) writeTo(client redis.Cmdable) {
+	// hash set
+	j, err := json.Marshal(p)
 	if err != nil {
-		panic(err)
+		fmt.Println("fail:", err)
 	}
 
-	if client == nil {
-		// opt.ReadTimeout = time.Second * 10
-		client = redis.NewClient(opt)
+	err = client.HSet("person", p.name, string(j)).Err()
+	if err != nil {
+		fmt.Println("fail:", err)
 	}
-	ping()
+}
+
+func (p *DbPerson) decodeFromStrCmd(r *redis.StringCmd) {
+	if err := r.Err(); err != nil {
+		fmt.Println("fail:", err)
+	} else {
+		if b, err := r.Bytes(); err != nil {
+			fmt.Println("fail:", err)
+		} else {
+			json.Unmarshal(b, p)
+		}
+	}
+}
+
+func (p *DbPerson) readFrom(client redis.Cmdable) {
+	p.decodeFromStrCmd(client.HGet("person", p.name))
+}
+
+func (p DbPerson) String() string {
+	return fmt.Sprintf("name: %s, age: %d, sex: %d, desc: %s", p.name, p.Age, p.Sex, p.Desc)
 }
 
 // RedisExample example
@@ -102,35 +134,6 @@ func ping() {
 	}
 }
 
-func (p *DbPerson) writeTo(client redis.Cmdable) {
-	// hash set
-	j, err := json.Marshal(p)
-	if err != nil {
-		fmt.Println("fail:", err)
-	}
+func clusterExample() {
 
-	err = client.HSet("person", p.name, string(j)).Err()
-	if err != nil {
-		fmt.Println("fail:", err)
-	}
-}
-
-func (p *DbPerson) decodeFromStrCmd(r *redis.StringCmd) {
-	if err := r.Err(); err != nil {
-		fmt.Println("fail:", err)
-	} else {
-		if b, err := r.Bytes(); err != nil {
-			fmt.Println("fail:", err)
-		} else {
-			json.Unmarshal(b, p)
-		}
-	}
-}
-
-func (p *DbPerson) readFrom(client redis.Cmdable) {
-	p.decodeFromStrCmd(client.HGet("person", p.name))
-}
-
-func (p DbPerson) String() string {
-	return fmt.Sprintf("name: %s, age: %d, sex: %d, desc: %s", p.name, p.Age, p.Sex, p.Desc)
 }
